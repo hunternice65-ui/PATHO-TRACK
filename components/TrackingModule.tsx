@@ -33,7 +33,16 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
     reader.onload = async () => {
       const base64 = reader.result as string;
       const extracted = await geminiService.scanItemsFromImage(base64, type === 'BLOCK');
-      setScannedItems(extracted);
+      
+      // Filter out duplicate scans within the same photo result
+      const uniqueExtracted = extracted.filter((item, index, self) =>
+        index === self.findIndex((t) => (
+          t.caseId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() === item.caseId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() &&
+          t.part.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() === item.part.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()
+        ))
+      );
+      
+      setScannedItems(uniqueExtracted);
       setIsProcessing(false);
     };
     reader.readAsDataURL(file);
@@ -74,7 +83,7 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
     } else if (duplicateCount > 0) {
       setResultsMessage({ 
         type: 'info', 
-        text: `All ${duplicateCount} scanned items already exist in the system. No new records created.` 
+        text: `All ${duplicateCount} scanned items already exist in the system. No duplicate records were created.` 
       });
     }
 
@@ -93,10 +102,8 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
     let autoImportCount = 0;
 
     for (const item of scannedItems) {
-      // Find latest version of this slide/block
       let existing = await storageService.findByScannedData(type, item.caseId, item.part);
       
-      // If not in system, auto-import first as requested
       if (!existing) {
         const newItem: PathoItem = {
           id: crypto.randomUUID(),
@@ -183,7 +190,6 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Check-In Button */}
             <button 
               onClick={() => setAction('IN')} 
               className="group relative flex flex-col items-center p-10 bg-white border-2 border-slate-100 rounded-[2.5rem] hover:border-indigo-500 hover:bg-indigo-50 hover:shadow-xl hover:shadow-indigo-100 transition-all duration-300 overflow-hidden"
@@ -196,7 +202,6 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
               <span className="text-sm text-slate-500 mt-2 font-medium">Add to Stock</span>
             </button>
 
-            {/* Check-Out Button */}
             <button 
               onClick={() => setAction('OUT')} 
               className="group relative flex flex-col items-center p-10 bg-white border-2 border-slate-100 rounded-[2.5rem] hover:border-orange-500 hover:bg-orange-50 hover:shadow-xl hover:shadow-orange-100 transition-all duration-300 overflow-hidden"
@@ -209,7 +214,6 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
               <span className="text-sm text-slate-500 mt-2 font-medium">Lend / Borrow</span>
             </button>
 
-            {/* Return Button */}
             <button 
               onClick={() => setAction('RETURN')} 
               className="group relative flex flex-col items-center p-10 bg-white border-2 border-slate-100 rounded-[2.5rem] hover:border-emerald-500 hover:bg-emerald-50 hover:shadow-xl hover:shadow-emerald-100 transition-all duration-300 overflow-hidden"

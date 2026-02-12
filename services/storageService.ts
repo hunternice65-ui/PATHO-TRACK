@@ -6,6 +6,12 @@ const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxHQXH0PNBSXZXYQ
 const ITEMS_KEY = 'patho_track_items';
 const LOGS_KEY = 'patho_track_login_logs';
 
+/**
+ * Normalize string for strict comparison (Remove non-alphanumeric and lowercase)
+ * e.g., "S24-1234/A" -> "s241234a"
+ */
+const normalize = (str: string) => (str || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+
 async function callGAS(payload: any) {
   try {
     if (GAS_WEBAPP_URL.includes('REPLACE_WITH_YOUR_ACTUAL_ID')) {
@@ -54,20 +60,22 @@ export const storageService = {
 
   /**
    * Returns true if saved, false if it was a duplicate
-   * Logic: Same Case ID + Part + Type = Duplicate (Ignoring date for physical item uniqueness)
+   * Uses normalized Case ID and Part for comparison
    */
   async saveItem(item: PathoItem): Promise<boolean> {
     const items = await this.getAllItems();
     
-    // Strict comparison: Trim and lowercase for robustness
+    const targetCaseId = normalize(item.caseId);
+    const targetPart = normalize(item.part);
+
     const duplicate = items.find(i => 
       i.type === item.type && 
-      (i.caseId || "").trim().toLowerCase() === (item.caseId || "").trim().toLowerCase() && 
-      (i.part || "").trim().toLowerCase() === (item.part || "").trim().toLowerCase()
+      normalize(i.caseId) === targetCaseId && 
+      normalize(i.part) === targetPart
     );
 
     if (duplicate) {
-      console.log('Duplicate detected, skipping save:', item.caseId, item.part);
+      console.log(`Duplicate blocked: ${item.type} ${item.caseId} Part ${item.part}`);
       return false;
     }
 
@@ -94,11 +102,14 @@ export const storageService = {
 
   async findByScannedData(type: EntityType, caseId: string, part: string): Promise<PathoItem | undefined> {
     const items = await this.getAllItems();
+    const targetCaseId = normalize(caseId);
+    const targetPart = normalize(part);
+
     return items
       .filter(i => 
         i.type === type && 
-        (i.caseId || "").trim().toLowerCase() === (caseId || "").trim().toLowerCase() && 
-        (i.part || "").trim().toLowerCase() === (part || "").trim().toLowerCase()
+        normalize(i.caseId) === targetCaseId && 
+        normalize(i.part) === targetPart
       )
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   }

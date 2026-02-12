@@ -20,15 +20,20 @@ function doPost(e) {
       var rows = sheet.getDataRange().getValues();
       var isDuplicate = false;
       
-      // Strict Deduplication Check: Type + Case ID + Part
-      var targetCaseId = (data.item.caseId || "").toString().trim().toLowerCase();
-      var targetPart = (data.item.part || "").toString().trim().toLowerCase();
+      // Strict Normalization for Deduplication
+      var normalizeStr = function(val) {
+        if (!val) return "";
+        return val.toString().replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+      };
+
+      var targetCaseId = normalizeStr(data.item.caseId);
+      var targetPart = normalizeStr(data.item.part);
       var targetType = data.item.type;
 
       for (var i = 1; i < rows.length; i++) {
         var rowType = rows[i][1];
-        var rowCaseId = rows[i][2].toString().trim().toLowerCase();
-        var rowPart = rows[i][4].toString().trim().toLowerCase();
+        var rowCaseId = normalizeStr(rows[i][2]);
+        var rowPart = normalizeStr(rows[i][4]);
 
         if (rowType == targetType && rowCaseId == targetCaseId && rowPart == targetPart) {
           isDuplicate = true;
