@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { EntityType, ScannedItem, PathoItem } from '../types';
 import { geminiService } from '../services/geminiService';
 import { storageService } from '../services/storageService';
@@ -18,8 +18,18 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [borrowerInfo, setBorrowerInfo] = useState({ name: '', quantity: 1, reason: '' });
   const [resultsMessage, setResultsMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
+  const [apiStatus, setApiStatus] = useState<'checking' | 'ready' | 'missing'>('checking');
   
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    // Basic check for API Key availability in frontend scope (if passed)
+    if (process.env.API_KEY) {
+      setApiStatus('ready');
+    } else {
+      setApiStatus('missing');
+    }
+  }, []);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -36,26 +46,27 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
         const extracted = await geminiService.scanItemsFromImage(base64, type === 'BLOCK');
         
         if (extracted.length === 0) {
-          setResultsMessage({ type: 'info', text: 'No items detected in the image. Please try a clearer photo.' });
+          setResultsMessage({ type: 'info', text: 'No items detected. Try a clearer photo with better lighting.' });
         } else {
           setScannedItems(extracted);
+          setResultsMessage({ type: 'success', text: `AI found ${extracted.length} items from the image.` });
         }
       } catch (err: any) {
         if (err.message === 'API_KEY_MISSING') {
-          setResultsMessage({ type: 'error', text: 'Configuration Error: Gemini API Key is missing on the server.' });
+          setResultsMessage({ 
+            type: 'error', 
+            text: 'Configuration Error: Gemini API Key is missing on Vercel. Please add API_KEY to Environment Variables.' 
+          });
+        } else if (err.message === 'API_KEY_INVALID') {
+          setResultsMessage({ type: 'error', text: 'Invalid API Key. Please verify your Gemini API key.' });
         } else {
-          setResultsMessage({ type: 'error', text: 'AI processing failed. Please check your internet connection or try again later.' });
+          setResultsMessage({ type: 'error', text: 'AI scan failed. Please check your internet connection and try again.' });
         }
         console.error("Scan Error:", err);
       } finally {
         setIsProcessing(false);
-        // Reset file input so same file can be uploaded again if needed
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
-    };
-    reader.onerror = () => {
-      setResultsMessage({ type: 'error', text: 'Failed to read image file.' });
-      setIsProcessing(false);
     };
     reader.readAsDataURL(file);
   };
@@ -85,7 +96,7 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
 
     setResultsMessage({ 
       type: 'success', 
-      text: `Successfully imported ${savedCount} items. ${duplicateCount > 0 ? `Skipped ${duplicateCount} duplicates.` : ''}` 
+      text: `Import complete. ${savedCount} saved, ${duplicateCount} duplicates skipped.` 
     });
     setScannedItems([]);
     setIsProcessing(false);
@@ -93,14 +104,15 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
 
   const processCheckout = async () => {
     if (!borrowerInfo.name) {
-      setResultsMessage({ type: 'error', text: 'Borrower name is required.' });
+      setResultsMessage({ type: 'error', text: 'Please enter a borrower name.' });
       return;
     }
     setIsProcessing(true);
-    let successCount = 0;
+    let count = 0;
     for (const item of scannedItems) {
       let existing = await storageService.findByScannedData(type, item.caseId, item.part);
       if (!existing) {
+        // Auto-create item if it doesn't exist yet
         const newItem: PathoItem = {
           id: crypto.randomUUID(),
           type, caseId: item.caseId, date: item.date, part: item.part,
@@ -116,26 +128,26 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
         borrowQuantity: borrowerInfo.quantity,
         borrowReason: borrowerInfo.reason
       }, user);
-      successCount++;
+      count++;
     }
-    setResultsMessage({ type: 'success', text: `Checkout of ${successCount} items logged.` });
+    setResultsMessage({ type: 'success', text: `Logged checkout for ${count} items.` });
     setScannedItems([]);
     setIsProcessing(false);
   };
 
   const processReturn = async () => {
     setIsProcessing(true);
-    let successCount = 0;
+    let count = 0;
     for (const item of scannedItems) {
       const existing = await storageService.findByScannedData(type, item.caseId, item.part);
       if (existing) {
         await storageService.updateItemStatus(existing.id, {
           status: 'IN_STOCK', borrower: undefined, borrowQuantity: undefined, borrowReason: undefined
         }, user);
-        successCount++;
+        count++;
       }
     }
-    setResultsMessage({ type: 'success', text: `Returned ${successCount} items to stock.` });
+    setResultsMessage({ type: 'success', text: `Returned ${count} items to inventory.` });
     setScannedItems([]);
     setIsProcessing(false);
   };
@@ -149,14 +161,21 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
         </button>
 
         <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 p-10">
-          <div className="flex items-center space-x-4 mb-10 border-b pb-6">
-            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg ${type === 'BLOCK' ? 'bg-indigo-600' : 'bg-emerald-500'}`}>
-              <i className={`fas ${type === 'BLOCK' ? 'fa-cube' : 'fa-vial'} text-3xl`}></i>
+          <div className="flex items-center justify-between mb-10 border-b pb-6">
+            <div className="flex items-center space-x-4">
+              <div className={`w-16 h-16 rounded-2xl flex items-center justify-center text-white shadow-lg ${type === 'BLOCK' ? 'bg-indigo-600' : 'bg-emerald-500'}`}>
+                <i className={`fas ${type === 'BLOCK' ? 'fa-cube' : 'fa-vial'} text-3xl`}></i>
+              </div>
+              <div>
+                <h2 className="text-3xl font-black text-slate-800">{type} Management</h2>
+                <p className="text-slate-500 font-medium">Select an operation to perform</p>
+              </div>
             </div>
-            <div>
-              <h2 className="text-3xl font-black text-slate-800">{type} Operations</h2>
-              <p className="text-slate-500 font-medium">Select an action to start tracking</p>
-            </div>
+            {apiStatus === 'missing' && (
+              <div className="bg-red-100 text-red-600 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-red-200">
+                <i className="fas fa-plug mr-2"></i> API Key Missing
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -208,18 +227,18 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
             >
               <input type="file" ref={fileInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
               <div className="w-24 h-24 bg-slate-100 rounded-[2rem] flex items-center justify-center mx-auto mb-6 group-hover:bg-white transition-all shadow-sm">
-                {isProcessing ? <i className="fas fa-spinner fa-spin text-4xl text-indigo-500"></i> : <i className="fas fa-camera text-4xl text-slate-500 group-hover:text-indigo-600"></i>}
+                {isProcessing ? <i className="fas fa-spinner fa-spin text-4xl text-indigo-500"></i> : <i className="fas fa-camera text-4xl text-slate-500"></i>}
               </div>
-              <p className="font-black text-slate-700 text-xl">{isProcessing ? 'AI Processing...' : 'Tap to Scan Labels'}</p>
-              <p className="text-slate-400 text-sm mt-2 font-medium">Clear photo improves AI accuracy</p>
+              <p className="font-black text-slate-700 text-xl">{isProcessing ? 'AI is processing image...' : 'Tap to scan labels'}</p>
+              <p className="text-slate-400 text-sm mt-2 font-medium">For best results, align items vertically</p>
             </div>
 
             {action === 'OUT' && (
               <div className="space-y-4 mb-8 bg-slate-50 p-6 rounded-3xl border-2 border-slate-100">
-                <input type="text" value={borrowerInfo.name} onChange={e => setBorrowerInfo({...borrowerInfo, name: e.target.value})} className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl outline-none font-bold" placeholder="Staff Name" />
+                <input type="text" value={borrowerInfo.name} onChange={e => setBorrowerInfo({...borrowerInfo, name: e.target.value})} className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl outline-none font-bold text-black" placeholder="Borrower Name" />
                 <div className="grid grid-cols-2 gap-4">
-                  <input type="number" value={borrowerInfo.quantity} onChange={e => setBorrowerInfo({...borrowerInfo, quantity: parseInt(e.target.value)})} className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl outline-none font-bold" placeholder="Qty" />
-                  <input type="text" value={borrowerInfo.reason} onChange={e => setBorrowerInfo({...borrowerInfo, reason: e.target.value})} className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl outline-none font-bold" placeholder="Reason" />
+                  <input type="number" value={borrowerInfo.quantity} onChange={e => setBorrowerInfo({...borrowerInfo, quantity: parseInt(e.target.value)})} className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl outline-none font-bold text-black" placeholder="Quantity" />
+                  <input type="text" value={borrowerInfo.reason} onChange={e => setBorrowerInfo({...borrowerInfo, reason: e.target.value})} className="w-full px-4 py-3 bg-white border-2 border-slate-200 rounded-xl outline-none font-bold text-black" placeholder="Reason/Project" />
                 </div>
               </div>
             )}
@@ -234,31 +253,41 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
 
             {resultsMessage && (
               <div className={`mt-8 p-5 rounded-2xl font-bold text-sm border-2 animate-in slide-in-from-top-2 ${resultsMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : resultsMessage.type === 'error' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
-                <i className={`fas ${resultsMessage.type === 'success' ? 'fa-check-circle' : resultsMessage.type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'} mr-2`}></i>
-                {resultsMessage.text}
+                <div className="flex items-start space-x-3">
+                  <i className={`fas ${resultsMessage.type === 'success' ? 'fa-check-circle' : resultsMessage.type === 'error' ? 'fa-exclamation-triangle' : 'fa-info-circle'} mt-1 text-lg`}></i>
+                  <div>
+                    <p>{resultsMessage.text}</p>
+                    {resultsMessage.type === 'error' && resultsMessage.text.includes('API Key') && (
+                      <div className="mt-2 p-2 bg-white/50 rounded-lg text-[11px] font-medium leading-tight">
+                        <strong>Fix:</strong> Go to Vercel Dashboard > Settings > Environment Variables. Add <code>API_KEY</code> with your Gemini key value. Then redeploy.
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
         </div>
 
         <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden flex flex-col h-[600px]">
           <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-            <h3 className="text-xl font-black text-slate-800">Scan Results ({scannedItems.length})</h3>
+            <h3 className="text-xl font-black text-slate-800">Scanned Items ({scannedItems.length})</h3>
             {scannedItems.length > 0 && (
-              <button onClick={() => setScannedItems([])} className="text-slate-400 hover:text-red-500 text-xs font-bold uppercase tracking-widest">Clear</button>
+              <button onClick={() => setScannedItems([])} className="text-slate-400 hover:text-red-500 text-xs font-bold uppercase tracking-widest">Clear List</button>
             )}
           </div>
           <div className="flex-grow overflow-y-auto p-6 space-y-4">
             {scannedItems.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-300">
                 <i className="fas fa-qrcode text-6xl mb-4 opacity-10"></i>
-                <p className="font-bold opacity-50">Waiting for scan input...</p>
+                <p className="font-bold opacity-40">Scan labels to see results here</p>
               </div>
             ) : (
               scannedItems.map((item, idx) => (
                 <div key={idx} className="bg-white border-2 border-slate-100 rounded-2xl p-4 flex justify-between items-center group hover:border-indigo-200 transition-colors shadow-sm">
                   <div>
-                    <h4 className="font-black text-slate-800">{item.caseId}</h4>
-                    <p className="text-xs text-slate-500 font-bold">Part: {item.part} • {item.date}</p>
+                    <h4 className="font-black text-slate-800 text-lg leading-tight">{item.caseId}</h4>
+                    <p className="text-xs text-slate-500 font-bold uppercase tracking-wide">Part: {item.part} • {item.date}</p>
+                    {item.additionalInfo && <p className="text-[10px] text-slate-400 font-medium mt-1 truncate max-w-[200px]">{item.additionalInfo}</p>}
                   </div>
                   <button onClick={() => setScannedItems(scannedItems.filter((_, i) => i !== idx))} className="text-slate-300 hover:text-red-500 transition-colors">
                     <i className="fas fa-times-circle text-xl"></i>
