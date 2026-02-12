@@ -18,7 +18,6 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
   const [scannedItems, setScannedItems] = useState<ScannedItem[]>([]);
   const [borrowerInfo, setBorrowerInfo] = useState({ name: '', quantity: 1, reason: '' });
   const [resultsMessage, setResultsMessage] = useState<{ type: 'success' | 'error' | 'info', text: string } | null>(null);
-  const [isApiKeyMissing, setIsApiKeyMissing] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -28,7 +27,6 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
 
     setIsProcessing(true);
     setResultsMessage(null);
-    setIsApiKeyMissing(false);
     setScannedItems([]);
 
     const reader = new FileReader();
@@ -37,31 +35,31 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
       try {
         const extracted = await geminiService.scanItemsFromImage(base64, type === 'BLOCK');
         
-        if (extracted.length === 0 && !process.env.API_KEY) {
-          setIsApiKeyMissing(true);
-          setResultsMessage({ type: 'error', text: 'Gemini API Key is missing. Please check Vercel environment variables.' });
-        } else if (extracted.length === 0) {
-          setResultsMessage({ type: 'info', text: 'No items detected. Please try a clearer photo.' });
+        if (extracted.length === 0) {
+          setResultsMessage({ type: 'info', text: 'No items detected in the image. Please try a clearer photo.' });
+        } else {
+          setScannedItems(extracted);
         }
-
-        const uniqueExtracted = extracted.filter((item, index, self) =>
-          index === self.findIndex((t) => (
-            t.caseId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() === item.caseId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() &&
-            t.part.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() === item.part.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()
-          ))
-        );
-        
-        setScannedItems(uniqueExtracted);
-      } catch (err) {
-        setResultsMessage({ type: 'error', text: 'Error communicating with Gemini AI. Check console for details.' });
+      } catch (err: any) {
+        if (err.message === 'API_KEY_MISSING') {
+          setResultsMessage({ type: 'error', text: 'Configuration Error: Gemini API Key is missing on the server.' });
+        } else {
+          setResultsMessage({ type: 'error', text: 'AI processing failed. Please check your internet connection or try again later.' });
+        }
+        console.error("Scan Error:", err);
       } finally {
         setIsProcessing(false);
+        // Reset file input so same file can be uploaded again if needed
+        if (fileInputRef.current) fileInputRef.current.value = '';
       }
+    };
+    reader.onerror = () => {
+      setResultsMessage({ type: 'error', text: 'Failed to read image file.' });
+      setIsProcessing(false);
     };
     reader.readAsDataURL(file);
   };
 
-  // ... (rest of the processing logic remains the same but ensure storageService.saveItem is used)
   const processImport = async () => {
     setIsProcessing(true);
     let savedCount = 0;
@@ -87,7 +85,7 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
 
     setResultsMessage({ 
       type: 'success', 
-      text: `Imported ${savedCount} items. ${duplicateCount > 0 ? `Skipped ${duplicateCount} duplicates.` : ''}` 
+      text: `Successfully imported ${savedCount} items. ${duplicateCount > 0 ? `Skipped ${duplicateCount} duplicates.` : ''}` 
     });
     setScannedItems([]);
     setIsProcessing(false);
@@ -137,7 +135,7 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
         successCount++;
       }
     }
-    setResultsMessage({ type: 'success', text: `Returned ${successCount} items.` });
+    setResultsMessage({ type: 'success', text: `Returned ${successCount} items to stock.` });
     setScannedItems([]);
     setIsProcessing(false);
   };
@@ -204,22 +202,16 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
         <div className="bg-white rounded-3xl shadow-xl border border-slate-100 p-8">
-           {isApiKeyMissing && (
-             <div className="mb-6 p-4 bg-red-50 border-2 border-red-100 rounded-2xl text-red-700 text-sm font-bold flex items-center space-x-3">
-               <i className="fas fa-exclamation-triangle text-xl"></i>
-               <span>API Key is missing. Scanning will not work. Add API_KEY to Vercel Environment Variables.</span>
-             </div>
-           )}
-
             <div 
               onClick={() => !isProcessing && fileInputRef.current?.click()} 
               className={`border-4 border-dashed border-slate-200 rounded-[2rem] p-12 text-center hover:border-${actionTheme}-400 hover:bg-${actionTheme}-50 transition-all cursor-pointer group mb-8 ${isProcessing ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               <input type="file" ref={fileInputRef} onChange={handleImageUpload} className="hidden" accept="image/*" />
-              <div className="w-24 h-24 bg-slate-100 rounded-[2rem] flex items-center justify-center mx-auto mb-6 group-hover:bg-white transition-all">
-                {isProcessing ? <i className="fas fa-spinner fa-spin text-4xl text-indigo-500"></i> : <i className="fas fa-camera text-4xl"></i>}
+              <div className="w-24 h-24 bg-slate-100 rounded-[2rem] flex items-center justify-center mx-auto mb-6 group-hover:bg-white transition-all shadow-sm">
+                {isProcessing ? <i className="fas fa-spinner fa-spin text-4xl text-indigo-500"></i> : <i className="fas fa-camera text-4xl text-slate-500 group-hover:text-indigo-600"></i>}
               </div>
-              <p className="font-black text-slate-700 text-xl">{isProcessing ? 'Processing Label...' : 'Tap to Scan Label'}</p>
+              <p className="font-black text-slate-700 text-xl">{isProcessing ? 'AI Processing...' : 'Tap to Scan Labels'}</p>
+              <p className="text-slate-400 text-sm mt-2 font-medium">Clear photo improves AI accuracy</p>
             </div>
 
             {action === 'OUT' && (
@@ -237,11 +229,12 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
               onClick={action === 'IN' ? processImport : action === 'OUT' ? processCheckout : processReturn} 
               className={`w-full py-5 rounded-2xl font-black text-lg transition-all text-white ${scannedItems.length === 0 ? 'bg-slate-300' : `bg-${actionTheme}-600 hover:bg-${actionTheme}-700 shadow-xl shadow-${actionTheme}-100`}`}
             >
-              {isProcessing ? <i className="fas fa-spinner fa-spin"></i> : 'Complete Transaction'}
+              {isProcessing ? <i className="fas fa-spinner fa-spin"></i> : `Complete ${action} Transaction`}
             </button>
 
             {resultsMessage && (
-              <div className={`mt-8 p-5 rounded-2xl font-bold text-sm border-2 ${resultsMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+              <div className={`mt-8 p-5 rounded-2xl font-bold text-sm border-2 animate-in slide-in-from-top-2 ${resultsMessage.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : resultsMessage.type === 'error' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
+                <i className={`fas ${resultsMessage.type === 'success' ? 'fa-check-circle' : resultsMessage.type === 'error' ? 'fa-exclamation-circle' : 'fa-info-circle'} mr-2`}></i>
                 {resultsMessage.text}
               </div>
             )}
@@ -250,21 +243,24 @@ const TrackingModule: React.FC<TrackingModuleProps> = ({ type, user, onBack }) =
         <div className="bg-white rounded-3xl shadow-xl border border-slate-100 overflow-hidden flex flex-col h-[600px]">
           <div className="p-6 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
             <h3 className="text-xl font-black text-slate-800">Scan Results ({scannedItems.length})</h3>
+            {scannedItems.length > 0 && (
+              <button onClick={() => setScannedItems([])} className="text-slate-400 hover:text-red-500 text-xs font-bold uppercase tracking-widest">Clear</button>
+            )}
           </div>
           <div className="flex-grow overflow-y-auto p-6 space-y-4">
             {scannedItems.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-slate-300">
-                <i className="fas fa-qrcode text-6xl mb-4 opacity-20"></i>
-                <p className="font-bold">Waiting for scan...</p>
+                <i className="fas fa-qrcode text-6xl mb-4 opacity-10"></i>
+                <p className="font-bold opacity-50">Waiting for scan input...</p>
               </div>
             ) : (
               scannedItems.map((item, idx) => (
-                <div key={idx} className="bg-white border-2 border-slate-100 rounded-2xl p-4 flex justify-between items-center group">
+                <div key={idx} className="bg-white border-2 border-slate-100 rounded-2xl p-4 flex justify-between items-center group hover:border-indigo-200 transition-colors shadow-sm">
                   <div>
                     <h4 className="font-black text-slate-800">{item.caseId}</h4>
                     <p className="text-xs text-slate-500 font-bold">Part: {item.part} • {item.date}</p>
                   </div>
-                  <button onClick={() => setScannedItems(scannedItems.filter((_, i) => i !== idx))} className="text-slate-300 hover:text-red-500">
+                  <button onClick={() => setScannedItems(scannedItems.filter((_, i) => i !== idx))} className="text-slate-300 hover:text-red-500 transition-colors">
                     <i className="fas fa-times-circle text-xl"></i>
                   </button>
                 </div>

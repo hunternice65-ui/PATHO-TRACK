@@ -4,18 +4,14 @@
  */
 function doGet(e) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('Inventory');
+  var sheet = getOrCreateSheet(ss, 'Inventory', [
+    'ID', 'Type', 'Case ID', 'Date', 'Part', 'Additional Info', 'Status', 'CreatedAt', 'RecordedBy'
+  ]);
   var data = [];
   
-  if (sheet) {
-    var rows = sheet.getDataRange().getValues();
-    var headers = rows[0];
+  var rows = sheet.getDataRange().getValues();
+  if (rows.length > 1) {
     for (var i = 1; i < rows.length; i++) {
-      var obj = {};
-      for (var j = 0; j < headers.length; j++) {
-        obj[headers[j].toString().toLowerCase().replace(/\s+/g, '')] = rows[i][j];
-      }
-      // Map GAS headers back to PathoItem interface
       data.push({
         id: rows[i][0],
         type: rows[i][1],

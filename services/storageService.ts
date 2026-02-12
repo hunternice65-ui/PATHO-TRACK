@@ -1,7 +1,7 @@
 
 import { PathoItem, LoginLog, EntityType } from '../types';
 
-// IMPORTANT: Ensure this URL points to your deployed Google Apps Script web app
+// IMPORTANT: Replace this URL with your actual deployed Google Apps Script URL
 const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxHQXH0PNBSXZXYQrqrYE0HbVz56ga_i6_LfsEoZl2IGl1aYIWoiWmJ_JQV2MIxLzTp/exec';
 
 const ITEMS_KEY = 'patho_track_items';
@@ -10,24 +10,30 @@ const LOGS_KEY = 'patho_track_login_logs';
 const normalize = (str: string) => (str || "").toString().replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
 
 export const storageService = {
-  /**
-   * Syncs local storage with Google Sheets data
-   */
   async syncFromCloud(): Promise<void> {
     try {
-      if (!GAS_WEBAPP_URL || GAS_WEBAPP_URL.includes('REPLACE')) return;
+      if (!GAS_WEBAPP_URL || GAS_WEBAPP_URL.includes('REPLACE')) {
+        console.warn("GAS_WEBAPP_URL is not configured.");
+        return;
+      }
       
-      // Fetching from GAS (Browser follows redirect automatically)
-      const response = await fetch(GAS_WEBAPP_URL);
-      if (response.ok) {
-        const cloudData = await response.json();
-        if (Array.isArray(cloudData)) {
-          localStorage.setItem(ITEMS_KEY, JSON.stringify(cloudData));
-          console.log('Sync complete:', cloudData.length, 'items loaded.');
-        }
+      // Standard fetch for GET usually works if GAS is deployed to 'Anyone'
+      // Browser handles the 302 redirect automatically
+      const response = await fetch(GAS_WEBAPP_URL, {
+        method: 'GET',
+        cache: 'no-store'
+      });
+      
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      
+      const cloudData = await response.json();
+      if (Array.isArray(cloudData)) {
+        localStorage.setItem(ITEMS_KEY, JSON.stringify(cloudData));
+        console.log('Sync complete:', cloudData.length, 'items loaded.');
       }
     } catch (error) {
       console.error('Failed to sync with Google Sheets:', error);
+      // If cloud sync fails, we still have the local data from the last session
     }
   },
 
@@ -44,12 +50,17 @@ export const storageService = {
     logs.push(newLog);
     localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
 
-    // Send to cloud without blocking
-    fetch(GAS_WEBAPP_URL, {
-      method: 'POST',
-      mode: 'no-cors',
-      body: JSON.stringify({ action: 'LOG_LOGIN', ...newLog })
-    });
+    // Send to cloud (no-cors is used for fire-and-forget POST to avoid CORS Preflight blocks)
+    try {
+      fetch(GAS_WEBAPP_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'LOG_LOGIN', ...newLog })
+      });
+    } catch (err) {
+      console.error('Cloud log failed', err);
+    }
   },
 
   async getAllItems(): Promise<PathoItem[]> {
@@ -73,10 +84,11 @@ export const storageService = {
     items.push(item);
     localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
 
-    // Async sync to GAS
+    // Sync to GAS in background
     fetch(GAS_WEBAPP_URL, {
       method: 'POST',
       mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'SAVE_ITEM', item })
     });
 
@@ -96,6 +108,7 @@ export const storageService = {
     fetch(GAS_WEBAPP_URL, {
       method: 'POST',
       mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'UPDATE_STATUS', id, updates, handledBy })
     });
   },

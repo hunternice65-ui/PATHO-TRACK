@@ -2,40 +2,43 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { ScannedItem } from "../types";
 
-// Safety check for Vercel Environment Variables
-const API_KEY = process.env.API_KEY || '';
-const ai = API_KEY ? new GoogleGenAI({ apiKey: API_KEY }) : null;
-
 export const geminiService = {
   async scanItemsFromImage(base64Image: string, isBlock: boolean): Promise<ScannedItem[]> {
-    if (!ai) {
-      console.error("Gemini API Key is missing. Check Vercel Project Settings.");
-      return [];
+    const apiKey = process.env.API_KEY;
+    
+    if (!apiKey) {
+      console.error("Gemini API Key is missing. Ensure API_KEY is set in Vercel environment variables.");
+      throw new Error("API_KEY_MISSING");
     }
+
+    // Create a new instance right before use to ensure the latest key is used
+    const ai = new GoogleGenAI({ apiKey });
 
     const prompt = `
       Analyze this photo of medical ${isBlock ? 'blocks' : 'slides'}.
-      In the photo, each ${isBlock ? 'block' : 'slide'} is a distinct rectangular object, usually with a white background or surface where text is printed/written.
+      In the photo, each ${isBlock ? 'block' : 'slide'} is a distinct rectangular object with text labels.
       
       Extract information from EVERY visible ${isBlock ? 'block' : 'slide'}.
-      For each one, find:
-      1. caseId: The main identification number (e.g., S24-12345).
-      2. date: Any date found on the label (YYYY-MM-DD format if possible).
-      3. part: The block/slide designation (e.g., A1, B, C2).
-      4. additionalInfo: Any other text like patient initials or lab notes.
+      Return the data in a JSON array with these fields:
+      1. caseId: The identification number (e.g., S24-12345).
+      2. date: The date on the label (YYYY-MM-DD).
+      3. part: The designation (e.g., A1, B, C).
+      4. additionalInfo: Any extra text found.
 
-      If multiple items are found, return a list. Ensure no duplicate entries are in the returned JSON array.
+      If no items are found, return an empty array [].
     `;
 
     try {
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: {
-          parts: [
-            { inlineData: { mimeType: 'image/jpeg', data: base64Image.split(',')[1] } },
-            { text: prompt }
-          ]
-        },
+        contents: [
+          {
+            parts: [
+              { inlineData: { mimeType: 'image/jpeg', data: base64Image.split(',')[1] } },
+              { text: prompt }
+            ]
+          }
+        ],
         config: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -59,16 +62,16 @@ export const geminiService = {
       
       const results = JSON.parse(text) as ScannedItem[];
       
-      // Secondary filter to ensure unique items in one scan
+      // Filter unique items locally as a safety measure
       return results.filter((item, index, self) =>
         index === self.findIndex((t) => (
-          t.caseId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() === item.caseId.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() &&
-          t.part.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() === item.part.replace(/[^a-zA-Z0-9]/g, "").toLowerCase()
+          (t.caseId || "").toString().replace(/[^a-zA-Z0-9]/g, "").toLowerCase() === (item.caseId || "").toString().replace(/[^a-zA-Z0-9]/g, "").toLowerCase() &&
+          (t.part || "").toString().replace(/[^a-zA-Z0-9]/g, "").toLowerCase() === (item.part || "").toString().replace(/[^a-zA-Z0-9]/g, "").toLowerCase()
         ))
       );
     } catch (error) {
       console.error("Gemini Scan Error:", error);
-      return [];
+      throw error;
     }
   }
 };
