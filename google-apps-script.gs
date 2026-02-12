@@ -2,7 +2,10 @@
 function doPost(e) {
   var result = { status: 'error', message: 'Unknown error' };
   try {
-    var data = JSON.parse(e.postData.contents);
+    var contents = e.postData.contents;
+    if (!contents) throw new Error('No content provided');
+    
+    var data = JSON.parse(contents);
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var action = data.action;
 
@@ -20,7 +23,7 @@ function doPost(e) {
       var rows = sheet.getDataRange().getValues();
       var isDuplicate = false;
       
-      // Strict Normalization for Deduplication
+      // Normalization function for Server-side deduplication
       var normalizeStr = function(val) {
         if (!val) return "";
         return val.toString().replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
@@ -30,6 +33,7 @@ function doPost(e) {
       var targetPart = normalizeStr(data.item.part);
       var targetType = data.item.type;
 
+      // Scan existing rows (Starts from index 1 to skip headers)
       for (var i = 1; i < rows.length; i++) {
         var rowType = rows[i][1];
         var rowCaseId = normalizeStr(rows[i][2]);
@@ -55,7 +59,7 @@ function doPost(e) {
         ]);
         result = { status: 'success', message: 'Item saved' };
       } else {
-        result = { status: 'duplicate', message: 'Item already exists' };
+        result = { status: 'duplicate', message: 'Blocked: Duplicate entry detected' };
       }
     }
 
@@ -67,6 +71,7 @@ function doPost(e) {
       var found = false;
       
       for (var i = 1; i < rows.length; i++) {
+        // Find by Unique UUID
         if (rows[i][0] == data.id) {
           sheet.getRange(i + 1, 7).setValue(data.updates.status);
           sheet.getRange(i + 1, 9).setValue(data.handledBy);
@@ -93,6 +98,7 @@ function doPost(e) {
     result = { status: 'error', message: err.toString() };
   }
 
+  // ContentService output is required for GAS but may be opaque to Vercel
   return ContentService.createTextOutput(JSON.stringify(result))
     .setMimeType(ContentService.MimeType.JSON);
 }

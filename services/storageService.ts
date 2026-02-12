@@ -7,17 +7,20 @@ const ITEMS_KEY = 'patho_track_items';
 const LOGS_KEY = 'patho_track_login_logs';
 
 /**
- * Normalize string for strict comparison (Remove non-alphanumeric and lowercase)
- * e.g., "S24-1234/A" -> "s241234a"
+ * Normalize string for strict comparison (Remove all non-alphanumeric and lowercase)
+ * e.g., "S-24/1234-A" -> "s241234a"
  */
-const normalize = (str: string) => (str || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+const normalize = (str: string) => (str || "").toString().replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
 
 async function callGAS(payload: any) {
   try {
-    if (GAS_WEBAPP_URL.includes('REPLACE_WITH_YOUR_ACTUAL_ID')) {
+    // Check if the URL is still the placeholder or if we are in a dev environment without setup
+    if (!GAS_WEBAPP_URL || GAS_WEBAPP_URL.includes('REPLACE_WITH_YOUR_ACTUAL_ID')) {
       return { status: 'local_only' };
     }
 
+    // Vercel/Browsers cannot read GAS responses due to CORS redirects. 
+    // We use no-cors to at least ensure the request is sent to the Google endpoint.
     await fetch(GAS_WEBAPP_URL, {
       method: 'POST',
       mode: 'no-cors',
@@ -27,7 +30,7 @@ async function callGAS(payload: any) {
     
     return { status: 'sent' };
   } catch (error) {
-    console.error('GAS Connection Error:', error);
+    console.error('GAS Sync Error:', error);
     return { status: 'error', error };
   }
 }
@@ -59,8 +62,8 @@ export const storageService = {
   },
 
   /**
+   * Core Deduplication Logic
    * Returns true if saved, false if it was a duplicate
-   * Uses normalized Case ID and Part for comparison
    */
   async saveItem(item: PathoItem): Promise<boolean> {
     const items = await this.getAllItems();
@@ -68,6 +71,7 @@ export const storageService = {
     const targetCaseId = normalize(item.caseId);
     const targetPart = normalize(item.part);
 
+    // Check against local database first (Standard for Vercel/Serverless apps to ensure speed)
     const duplicate = items.find(i => 
       i.type === item.type && 
       normalize(i.caseId) === targetCaseId && 
@@ -75,15 +79,15 @@ export const storageService = {
     );
 
     if (duplicate) {
-      console.log(`Duplicate blocked: ${item.type} ${item.caseId} Part ${item.part}`);
+      console.warn(`Duplicate Blocked (Frontend): ${item.type} ${item.caseId} Part ${item.part}`);
       return false;
     }
 
     items.push(item);
     localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
 
-    // Sync to Google Sheets
-    await callGAS({ action: 'SAVE_ITEM', item });
+    // Sync to Google Sheets (Fire and forget style to avoid CORS/Redirect issues on Vercel)
+    callGAS({ action: 'SAVE_ITEM', item });
     return true;
   },
 
