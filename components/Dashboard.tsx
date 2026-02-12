@@ -1,6 +1,7 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { EntityType } from '../types';
+import { storageService } from '../services/storageService';
 
 interface DashboardProps {
   onSelect: (type: EntityType) => void;
@@ -8,8 +9,32 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ onSelect, onViewReports }) => {
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  useEffect(() => {
+    handleSync();
+  }, []);
+
+  const handleSync = async () => {
+    setIsSyncing(true);
+    await storageService.syncFromCloud();
+    setIsSyncing(false);
+  };
+
   return (
     <div className="max-w-4xl w-full flex flex-col space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-black text-slate-800">Workspace</h2>
+        <button 
+          onClick={handleSync}
+          disabled={isSyncing}
+          className="flex items-center space-x-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
+        >
+          <i className={`fas fa-sync-alt ${isSyncing ? 'fa-spin text-indigo-500' : ''}`}></i>
+          <span>{isSyncing ? 'Syncing Cloud Data...' : 'Refresh from Cloud'}</span>
+        </button>
+      </div>
+
       <div className="grid md:grid-cols-2 gap-8">
         <div 
           onClick={() => onSelect('BLOCK')}
