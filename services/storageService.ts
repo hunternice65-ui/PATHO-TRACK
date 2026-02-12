@@ -54,27 +54,27 @@ export const storageService = {
 
   /**
    * Returns true if saved, false if it was a duplicate
-   * Logic: Same Case ID + Part + Date + Type = Duplicate
+   * Logic: Same Case ID + Part + Type = Duplicate (Ignoring date for physical item uniqueness)
    */
   async saveItem(item: PathoItem): Promise<boolean> {
     const items = await this.getAllItems();
     
+    // Strict comparison: Trim and lowercase for robustness
     const duplicate = items.find(i => 
       i.type === item.type && 
-      i.caseId.trim().toLowerCase() === item.caseId.trim().toLowerCase() && 
-      i.part.trim().toLowerCase() === item.part.trim().toLowerCase() &&
-      i.date.trim() === item.date.trim()
+      (i.caseId || "").trim().toLowerCase() === (item.caseId || "").trim().toLowerCase() && 
+      (i.part || "").trim().toLowerCase() === (item.part || "").trim().toLowerCase()
     );
 
     if (duplicate) {
-      console.log('Duplicate detected (Same Date), skipping save:', item.caseId, item.part);
+      console.log('Duplicate detected, skipping save:', item.caseId, item.part);
       return false;
     }
 
     items.push(item);
     localStorage.setItem(ITEMS_KEY, JSON.stringify(items));
 
-    // Sync to Google Sheets only if it's a new record
+    // Sync to Google Sheets
     await callGAS({ action: 'SAVE_ITEM', item });
     return true;
   },
@@ -97,8 +97,8 @@ export const storageService = {
     return items
       .filter(i => 
         i.type === type && 
-        i.caseId.trim().toLowerCase() === caseId.trim().toLowerCase() && 
-        i.part.trim().toLowerCase() === part.trim().toLowerCase()
+        (i.caseId || "").trim().toLowerCase() === (caseId || "").trim().toLowerCase() && 
+        (i.part || "").trim().toLowerCase() === (part || "").trim().toLowerCase()
       )
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0];
   }

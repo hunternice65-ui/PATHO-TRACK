@@ -20,23 +20,17 @@ function doPost(e) {
       var rows = sheet.getDataRange().getValues();
       var isDuplicate = false;
       
-      // Strict Deduplication Check:
-      // Compare Type, Case ID, Part, and Date (ignore Additional Info for duplication logic)
-      var targetCaseId = data.item.caseId.toString().trim().toLowerCase();
-      var targetPart = data.item.part.toString().trim().toLowerCase();
-      var targetDate = data.item.date.toString().trim();
+      // Strict Deduplication Check: Type + Case ID + Part
+      var targetCaseId = (data.item.caseId || "").toString().trim().toLowerCase();
+      var targetPart = (data.item.part || "").toString().trim().toLowerCase();
       var targetType = data.item.type;
 
       for (var i = 1; i < rows.length; i++) {
         var rowType = rows[i][1];
         var rowCaseId = rows[i][2].toString().trim().toLowerCase();
-        var rowDate = rows[i][3].toString().trim();
         var rowPart = rows[i][4].toString().trim().toLowerCase();
 
-        if (rowType == targetType && 
-            rowCaseId == targetCaseId && 
-            rowPart == targetPart && 
-            rowDate == targetDate) {
+        if (rowType == targetType && rowCaseId == targetCaseId && rowPart == targetPart) {
           isDuplicate = true;
           break;
         }
@@ -56,7 +50,7 @@ function doPost(e) {
         ]);
         result = { status: 'success', message: 'Item saved' };
       } else {
-        result = { status: 'duplicate', message: 'Already exists in spreadsheet' };
+        result = { status: 'duplicate', message: 'Item already exists' };
       }
     }
 
