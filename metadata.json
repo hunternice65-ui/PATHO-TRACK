@@ -1,0 +1,7 @@
+{
+  "name": "PathoTrack - Block & Slide Management",
+  "description": "A high-precision tracking system for pathology blocks and slides using Gemini AI for automated data extraction from photos.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
