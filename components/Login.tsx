@@ -38,7 +38,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
             <i className="fas fa-user-lock text-4xl"></i>
           </div>
           <h2 className="text-3xl font-extrabold text-slate-900 mb-2">Secure Login</h2>
-          <p className="text-slate-500">Pathology Tracking System v2.0</p>
+          <p className="text-slate-500">Pathology Tracking System</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6">
